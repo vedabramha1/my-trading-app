@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
-import pandas as pd
 
 # --- SETUP THE APP ---
 st.set_page_config(page_title="Alpha Intelligence 2026", layout="wide")
@@ -16,7 +15,8 @@ with st.sidebar:
     
     def get_price(symbol):
         try:
-            return round(yf.Ticker(symbol).history(period="1d")['Close'].iloc[-1], 2)
+            p = yf.Ticker(symbol).history(period="1d")['Close']
+            return round(p.iloc[-1], 2) if not p.empty else 0.0
         except:
             return 0.0
 
@@ -39,8 +39,15 @@ with col1:
     if not hist.empty:
         st.metric("Price", f"${round(hist['Close'].iloc[-1], 2)}")
     st.write("**Recent News:**")
-    for item in stock.news[:3]:
-        st.markdown(f"• [{item['title']}]({item['link']})")
+    # UPDATED SAFETY CHECK FOR NEWS
+    try:
+        news_items = stock.news[:3]
+        for item in news_items:
+            title = item.get('title', 'No Title Available')
+            link = item.get('link', '#')
+            st.markdown(f"• [{title}]({link})")
+    except:
+        st.write("No news available at the moment.")
 
 with col2:
     if not hist.empty:
