@@ -3,66 +3,81 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 
-st.set_page_config(page_title="2026 Pro Trader", layout="wide")
+st.set_page_config(page_title="2026 Alpha Terminal", layout="wide")
 
-# --- SIDEBAR: MACRO & COMMODITIES ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("🌎 World Sentiment")
+    st.header("🌎 Global Context")
     st.info("FED: Watching 2026 rate cut path.")
-    st.metric("Gold (Safe Haven)", f"${yf.Ticker('GC=F').history(period='1d')['Close'].iloc[-1]:.2f}")
+    gold_price = yf.Ticker('GC=F').history(period='1d')['Close'].iloc[-1]
+    st.metric("Gold (Safe Haven)", f"${gold_price:.2f}")
 
-# --- MAIN APP ---
-ticker = st.selectbox("Select Asset", ["META", "AAPL", "NVDA", "TSLA", "BTC-USD"])
-stock = yf.Ticker(ticker)
+# --- SEARCH & ASSET SELECTION ---
+st.title("🚀 2026 Institutional Trading Dashboard")
+ticker = st.text_input("🔍 Type ANY Stock Ticker (e.g., AAPL, NVDA, META):", value="META").upper()
 
-# 1. OPTION SENTIMENT (TRADERS' MINDSET)
-st.header(f"🧠 Traders' Mindset for {ticker}")
-try:
-    # Fetch first available option expiration
-    expiry = stock.options[0]
-    opts = stock.option_chain(expiry)
-    total_calls_oi = opts.calls['openInterest'].sum()
-    total_puts_oi = opts.puts['openInterest'].sum()
-    pcr = total_puts_oi / total_calls_oi
+if ticker:
+    stock = yf.Ticker(ticker)
+    
+    # 1. OPTION VOLUME & DOLLAR IMPACT (MINDSET)
+    st.header(f"🧠 Institutional Mindset: {ticker}")
+    try:
+        expiry = stock.options[0]
+        opts = stock.option_chain(expiry)
+        
+        # Calculate $ Impact (Open Interest * Last Price)
+        opts.calls['dollar_impact'] = opts.calls['openInterest'] * opts.calls['lastPrice'] * 100
+        opts.puts['dollar_impact'] = opts.puts['openInterest'] * opts.puts['lastPrice'] * 100
+        
+        call_val = opts.calls['dollar_impact'].sum()
+        put_val = opts.puts['dollar_impact'].sum()
+        total_val = call_val + put_val
+        
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            st.metric("Total Call Value ($)", f"${call_val/1e6:.2f}M")
+            st.progress(call_val / total_val if total_val > 0 else 0)
+            st.caption("Call Side Concentration")
+            
+        with col_m2:
+            st.metric("Total Put Value ($)", f"${put_val/1e6:.2f}M")
+            st.progress(put_val / total_val if total_val > 0 else 0)
+            st.caption("Put Side Concentration")
 
-    col_s1, col_s2 = st.columns(2)
-    with col_s1:
-        st.metric("Put/Call Ratio (OI)", f"{pcr:.2f}")
-    with col_s2:
-        if pcr < 0.7:
-            st.success("🔥 BULLISH MINDSET: People are buying more Calls.")
-        elif pcr > 1.1:
-            st.error("📉 BEARISH MINDSET: People are buying more Puts.")
+        if call_val > put_val:
+            st.success(f"🔥 BULLS DOMINATING: Bulls have ${ (call_val - put_val)/1e6 :.1f}M more skin in the game.")
         else:
-            st.warning("🤝 NEUTRAL: Traders are undecided.")
-except:
-    st.write("Options data currently unavailable for this asset.")
+            st.error(f"📉 BEARS DOMINATING: Bears have ${ (put_val - call_val)/1e6 :.1f}M more skin in the game.")
+    except:
+        st.warning("⚠️ This asset might not have active Options data for the nearest expiry.")
 
-# 2. TECHNICALS: SUPPORT & RESISTANCE
-hist = stock.history(period="6mo")
-resistance = hist['High'].max()
-support = hist['Low'].min()
-curr = hist['Close'].iloc[-1]
+    # 2. CHART + SUPPORT/RESISTANCE
+    hist = stock.history(period="6mo")
+    if not hist.empty:
+        resistance = hist['High'].max()
+        support = hist['Low'].min()
+        curr = hist['Close'].iloc[-1]
+        
+        st.divider()
+        st.header("📊 Price Levels & Technical Zones")
+        
+        # Visual Candlestick Chart
+        chart_df = hist.tail(45)
+        fig = go.Figure(data=[go.Candlestick(x=chart_df.index, open=chart_df['Open'], 
+                        high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'], name="Price")])
+        
+        fig.add_hline(y=resistance, line_dash="dash", line_color="red", annotation_text=f"RESISTANCE: ${resistance:.2f}")
+        fig.add_hline(y=support, line_dash="dash", line_color="green", annotation_text=f"SUPPORT: ${support:.2f}")
+        
+        fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=600)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # 3. VOLUME BREAKOUT NOTIFICATION
+        avg_vol = hist['Volume'].mean()
+        curr_vol = hist['Volume'].iloc[-1]
+        if curr_vol > (avg_vol * 1.5):
+            st.toast(f"🚨 MASSIVE VOLUME DETECTED on {ticker}!", icon="🔊")
+            st.warning(f"Extreme Volume: {curr_vol/1e6:.1f} Million shares traded today!")
 
-st.divider()
-st.header("📊 Technical Analysis (Support & Resistance)")
-col_p1, col_p2, col_p3 = st.columns(3)
-col_p1.metric("Current Price", f"${curr:.2f}")
-col_p2.write(f"**Resistance:** :red[${resistance:.2f}]")
-col_p3.write(f"**Support:** :green[${support:.2f}]")
-
-# Chart with S/R Lines
-chart_df = hist.tail(40)
-fig = go.Figure(data=[go.Candlestick(x=chart_df.index, open=chart_df['Open'], 
-                high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'])])
-fig.add_hline(y=resistance, line_dash="dash", line_color="red", annotation_text="RESISTANCE")
-fig.add_hline(y=support, line_dash="dash", line_color="green", annotation_text="SUPPORT")
-fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False)
-st.plotly_chart(fig, use_container_width=True)
-
-# 3. VOLUME & POP-UP ALERTS
-avg_vol = hist['Volume'].mean()
-curr_vol = hist['Volume'].iloc[-1]
-if curr_vol > (avg_vol * 1.5):
-    st.toast(f"🚨 VOLUME SPIKE DETECTED for {ticker}!", icon="🔊")
-    st.warning(f"High Volume Alert: {curr_vol/1e6:.1f}M shares traded!")
+    else:
+        st.error("Could not find data for this ticker. Please check the symbol.")
